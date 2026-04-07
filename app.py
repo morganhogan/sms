@@ -7,19 +7,33 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # Allows frontend to call this backend
+
+# 🔧 FIXED: Configure CORS with specific settings
+CORS(app, 
+     resources={r"/*": {"origins": "*"}},
+     supports_credentials=True,
+     methods=["GET", "POST", "OPTIONS"],
+     allow_headers=["Content-Type", "Authorization", "Accept"]
+)
+
+# Add manual CORS headers as backup
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+    response.headers.add('Access-Control-Allow-Credentials', 'true')
+    return response
 
 # 🔐 SECURITY: Key is now pulled from Render's Environment Variables
-# In Render Dashboard, add: MOBILESASA_API_KEY
 API_KEY = os.environ.get("MOBILESASA_API_KEY", "XNiKXQXpVBLHtjVpJ89dqqUcW6K0BPJHYJmOUpoPmM9NUQSF1qPn9UypVxBv")
 SENDER_ID = "MOBILESASA"
 API_URL = "https://api.mobilesasa.com/v1/send/message"
 
-# ⚠️ In-memory store (Will clear if Render puts the app to sleep on Free Tier)
+# ⚠️ In-memory store
 otp_store = {}
 
 def validate_phone(phone):
-    # Validates Kenyan format 2547XXXXXXXX or 2541XXXXXXXX
     return bool(re.match(r'^254[71]\d{8}$', phone.strip()))
 
 def generate_otp():
@@ -29,8 +43,12 @@ def generate_otp():
 def health_check():
     return jsonify({"status": "online", "message": "OTP Service is running"}), 200
 
-@app.route('/api/send-otp', methods=['POST'])
+@app.route('/api/send-otp', methods=['POST', 'OPTIONS'])
 def send_otp():
+    # Handle preflight OPTIONS request
+    if request.method == 'OPTIONS':
+        return '', 200
+        
     data = request.json
     if not data:
         return jsonify({"success": False, "message": "No data provided"}), 400
@@ -62,7 +80,6 @@ def send_otp():
         resp = requests.post(API_URL, json=payload, headers=headers, timeout=30)
         result = resp.json()
         
-        # Check both possible success indicators from MobileSasa
         if result.get("status") is True or result.get("responseCode") == "0200":
             return jsonify({"success": True, "message": "Code sent!"})
         else:
@@ -70,8 +87,12 @@ def send_otp():
     except Exception as e:
         return jsonify({"success": False, "message": f"Server error: {str(e)}"}), 500
 
-@app.route('/api/verify-otp', methods=['POST'])
+@app.route('/api/verify-otp', methods=['POST', 'OPTIONS'])
 def verify_otp():
+    # Handle preflight OPTIONS request
+    if request.method == 'OPTIONS':
+        return '', 200
+        
     data = request.json
     if not data:
         return jsonify({"success": False, "message": "No data provided"}), 400
@@ -105,6 +126,5 @@ def verify_otp():
         return jsonify({"success": False, "message": msg}), 400
 
 if __name__ == '__main__':
-    # Bind to PORT provided by Render, or default to 5000 for local testing
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
